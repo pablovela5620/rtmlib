@@ -10,7 +10,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-include = ["sam2_depthanything*"]
+include = ["rtmlib*"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
