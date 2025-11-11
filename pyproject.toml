@@ -1,9 +1,17 @@
 [project]
-authors = [{ name = "pablovela5620", email = "pablovela5620@gmail.com" }]
-dependencies = []
 name = "rtmlib"
-requires-python = ">= 3.11"
 version = "0.1.0"
+authors = [{ name = "pablovela5620", email = "pablovela5620@gmail.com" }]
+description = "RTMPose series (RTMPose, DWPose, RTMO, RTMW) without mmcv, mmpose, mmdet etc."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "numpy>=2.3.4",
+    "onnxruntime>=1.23.2",
+    "opencv-contrib-python>=4.11.0.86",
+    "opencv-python>=4.11.0.86",
+    "tqdm>=4.67.1",
+]
 
 [build-system]
 requires = ["setuptools"]
