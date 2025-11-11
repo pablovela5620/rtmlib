@@ -4,7 +4,7 @@ version = "0.1.0"
 authors = [{ name = "pablovela5620", email = "pablovela5620@gmail.com" }]
 description = "RTMPose series (RTMPose, DWPose, RTMO, RTMW) without mmcv, mmpose, mmdet etc."
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     "numpy>=2.3.4",
     "onnxruntime>=1.23.2",
@@ -26,16 +26,56 @@ platforms = ["linux-64"]
 
 [tool.pixi.pypi-dependencies]
 rtmlib = { path = ".", editable = true }
-simplecv = { git = "https://github.com/pablovela5620/simplecv.git", rev = "a279fb50e2e332cbf99fcb885c086b916bb3fd16" }
+simplecv = { git = "https://github.com/pablovela5620/simplecv.git", rev = "6457d75664a4e7b3691c141070318b6ce891be31" }
 
 
 [tool.pixi.tasks]
+[tool.pixi.tasks.benchmark-wb]
+cmd = "python tools/benchmark_backends.py --pose-kind 2d --image demo.jpg --warmup 1 --runs 20"
+description = "Run the 2D Wholebody pose benchmark (ORT CPU/CUDA vs TensorRT)."
 
 [tool.pixi.dependencies]
-numpy = "<2"
-onnxruntime = ">=1.20.1,<2"
-py-opencv = ">=4.11.0,<5"
+numpy = ">=2.3.4"
 tqdm = ">=4.67.1,<5"
-python = "==3.11"
+python = "==3.12"
 gradio = "<5"
-rerun-sdk = ">=0.22.1,<0.23"
+rerun-sdk = ">=0.25,<0.26"
+pycuda = ">=2024.1"
+onnx = ">=1.16.0"
+
+[tool.pixi.feature.cuda]
+platforms = ["linux-64"]
+
+[tool.pixi.feature.cuda.dependencies]
+cuda-compiler = "*"
+cuda-version = "12.8.*"
+cuda-cudart-dev = "*"
+cuda-crt = "*"
+libcusparse-dev = "*"
+cuda-driver-dev = "*"
+cuda-nvcc = "*"
+cuda-nvrtc-dev = "*"
+cuda-nvtx = "*"
+cuda-nvtx-dev = "*"
+cuda-nvml-dev = "*"
+cuda-profiler-api = "*"
+libnvjitlink = "*"
+cudnn = "*"
+libcublas-dev = "*"
+libcudss-dev = "*"
+libcufile-dev = "*"
+libcufft-dev = "*"
+libcurand-dev = "*"
+libcusolver-dev = "*"
+cusparselt = "*"
+
+[tool.pixi.feature.cuda.pypi-dependencies]
+onnxruntime-gpu = "==1.23.2"
+tensorrt-cu12 = ">=10.0.1"
+cuda-python = ">=12.8.0"
+nvidia-cuda-runtime-cu12 = { index = "https://pypi.nvidia.com" }
+nvidia-cudnn-cu12 = { index = "https://pypi.nvidia.com" }
+nvidia-cublas-cu12 = { index = "https://pypi.nvidia.com" }
+
+[tool.pixi.environments]
+default = { features = ["cuda"] }

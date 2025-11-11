@@ -1,3 +1,11 @@
+"""Shared inference helpers for detectors and pose models.
+
+Every model wrapper in rtmlib inherits from :class:`BaseTool`. Centralising the
+backend selection logic here keeps the rest of the code base lean and makes it
+easy to switch between ONNX Runtime and TensorRT plan execution without
+duplicated boilerplate.
+"""
+
 import os
 from abc import ABCMeta, abstractmethod
 from typing import Any
@@ -6,43 +14,51 @@ import cv2
 import numpy as np
 
 from .file import download_checkpoint
-def check_mps_support():
+from .trt_runner import TensorRTPlanRunner
+
+
+def check_mps_support() -> bool:
+    """Return True when ONNX Runtime exposes an Apple GPU execution provider."""
     try:
         import onnxruntime
+
         providers = onnxruntime.get_available_providers()
-        return 'MPSExecutionProvider' in providers or 'CoreMLExecutionProvider' in providers
+        return "MPSExecutionProvider" in providers or "CoreMLExecutionProvider" in providers
     except ImportError:
         return False
 
-RTMLIB_SETTINGS = {
-    'opencv': {
-        'cpu': (cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU),
 
+RTMLIB_SETTINGS = {
+    "opencv": {
+        "cpu": (cv2.dnn.DNN_BACKEND_OPENCV, cv2.dnn.DNN_TARGET_CPU),
         # You need to manually build OpenCV through cmake
-        'cuda': (cv2.dnn.DNN_BACKEND_CUDA, cv2.dnn.DNN_TARGET_CUDA)
+        "cuda": (cv2.dnn.DNN_BACKEND_CUDA, cv2.dnn.DNN_TARGET_CUDA),
     },
-    'onnxruntime': {
-        'cpu': 'CPUExecutionProvider',
-        'cuda': 'CUDAExecutionProvider',
-        'rocm': 'ROCMExecutionProvider',
-        'mps': 'CoreMLExecutionProvider' if check_mps_support() else 'CPUExecutionProvider'
+    "onnxruntime": {
+        "cpu": "CPUExecutionProvider",
+        "cuda": "CUDAExecutionProvider",
+        "rocm": "ROCMExecutionProvider",
+        "mps": "CoreMLExecutionProvider" if check_mps_support() else "CPUExecutionProvider",
     },
 }
 
+
 class BaseTool(metaclass=ABCMeta):
+    """Thin wrapper around a single-model inference session."""
 
-    def __init__(self,
-                 onnx_model: str = None,
-                 model_input_size: tuple = None,
-                 mean: tuple = None,
-                 std: tuple = None,
-                 backend: str = 'opencv',
-                 device: str = 'cpu'):
-
+    def __init__(
+        self,
+        onnx_model: str = None,
+        model_input_size: tuple = None,
+        mean: tuple = None,
+        std: tuple = None,
+        backend: str = "opencv",
+        device: str = "cpu",
+    ):
         if not os.path.exists(onnx_model):
             onnx_model = download_checkpoint(onnx_model)
 
-        if backend == 'opencv':
+        if backend == "opencv":
             try:
                 providers = RTMLIB_SETTINGS[backend][device]
 
@@ -52,37 +68,49 @@ class BaseTool(metaclass=ABCMeta):
                 self.session = session
             except Exception:
                 raise RuntimeError(
-                    'This model is not supported by OpenCV'
-                    ' backend, please use `pip install'
-                    ' onnxruntime` or `pip install'
-                    ' onnxruntime-gpu` to install onnxruntime'
-                    ' backend. Then specify `backend=onnxruntime`.')  # noqa
+                    "This model is not supported by OpenCV"
+                    " backend, please use `pip install"
+                    " onnxruntime` or `pip install"
+                    " onnxruntime-gpu` to install onnxruntime"
+                    " backend. Then specify `backend=onnxruntime`."
+                )  # noqa
 
-        elif backend == 'onnxruntime':
+        elif backend == "onnxruntime":
             import onnxruntime as ort
+
             # 'cuda:device_id'
             if (device not in RTMLIB_SETTINGS[backend]) and ("cuda" in device):
                 device_id = int(device.split(":")[-1])
-                providers = ('CUDAExecutionProvider', {'device_id': device_id})
+                providers = ("CUDAExecutionProvider", {"device_id": device_id})
             else:
                 providers = RTMLIB_SETTINGS[backend][device]
 
-            self.session = ort.InferenceSession(path_or_bytes=onnx_model,
-                                                providers=[providers])
+            if isinstance(providers, list):
+                providers_list = providers
+            elif isinstance(providers, tuple) and not isinstance(providers[0], (list, tuple)):
+                providers_list = [providers]
+            else:
+                providers_list = [providers]
 
-        elif backend == 'openvino':
+            self.session = ort.InferenceSession(path_or_bytes=onnx_model, providers=providers_list)
+
+        elif backend == "tensorrt_plan":
+            if device != "cuda":
+                raise ValueError('TensorRT plan backend requires device="cuda"')
+            self.trt_runner = TensorRTPlanRunner(onnx_model)
+
+        elif backend == "openvino":
             from openvino import Core
+
             core = Core()
             model_onnx = core.read_model(model=onnx_model)
 
-            if device != 'cpu':
-                print('OpenVINO only supports CPU backend, automatically'
-                      ' switched to CPU backend.')
+            if device != "cpu":
+                print("OpenVINO only supports CPU backend, automatically switched to CPU backend.")
 
             self.compiled_model = core.compile_model(
-                model=model_onnx,
-                device_name='CPU',
-                config={'PERFORMANCE_HINT': 'LATENCY'})
+                model=model_onnx, device_name="CPU", config={"PERFORMANCE_HINT": "LATENCY"}
+            )
             self.input_layer = self.compiled_model.input(0)
             self.output_layer0 = self.compiled_model.output(0)
             self.output_layer1 = self.compiled_model.output(1)
@@ -90,7 +118,7 @@ class BaseTool(metaclass=ABCMeta):
         else:
             raise NotImplementedError
 
-        print(f'load {onnx_model} with {backend} backend')
+        print(f"load {onnx_model} with {backend} backend")
 
         self.onnx_model = onnx_model
         self.model_input_size = model_input_size
@@ -119,18 +147,20 @@ class BaseTool(metaclass=ABCMeta):
         input = img[None, :, :, :]
 
         # run model
-        if self.backend == 'opencv':
+        if self.backend == "opencv":
             outNames = self.session.getUnconnectedOutLayersNames()
             self.session.setInput(input)
             outputs = self.session.forward(outNames)
-        elif self.backend == 'onnxruntime':
+        elif self.backend == "onnxruntime":
             sess_input = {self.session.get_inputs()[0].name: input}
             sess_output = []
             for out in self.session.get_outputs():
                 sess_output.append(out.name)
 
             outputs = self.session.run(sess_output, sess_input)
-        elif self.backend == 'openvino':
+        elif self.backend == "tensorrt_plan":
+            outputs = self.trt_runner.run([input])
+        elif self.backend == "openvino":
             results = self.compiled_model(input)
             output0 = results[self.output_layer0]
             output1 = results[self.output_layer1]
